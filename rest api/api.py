@@ -148,6 +148,9 @@ def get_user(publicid):
 @app.route('/addrestaurant' , methods=['POST'])
 def add_restaurant():
     data = request.get_json(force=True)
+    if not data:
+        return jsonify("invalid request")
+
     new_restaurant = Restaurant(restaurantpublicid=str(uuid.uuid4()),restaurantname=data['name'],restaurantaddress=data['address'],restaurantcontact=data['contact'],restaurantemail=data['email'],
     restaurantrating=data['rating'],restaurantimage=data['image'],restaurantmenu=data['menu'],avgcost=data['cost'])
     db.session.add(new_restaurant)
@@ -199,13 +202,39 @@ def get_restaurant(restaurant_id):
 
     return jsonify({'restaurant' : restaurant_data})
 
-@app.route('/postreview/<restaurant_id>',methods=['POST'])
-def post_review(restaurant_id):
+	
+@app.route('/postreview',methods=['POST'])
+def post_review():
+    data=request.get_json(force=True)
+    if 'publicid' in session:
+        publicid=session['publicid']
+        user = User.query.filter_by(publicid=publicid).first()
+    else:
+        return jsonify("login to post review!")
+    restaurant=Restaurant.query.filter_by(restaurantpublicid=data['publicid']).first()
+    new_review=Review(reviewtext=data['text'],isreplied=False,user=user,restaurant=restaurant)
+    db.session.add(new_review)
+    db.session.commit()
+    return jsonify({"message" : "review posted!"})
+
+
+@app.route('/getreviews/<public_id>',methods=['GET'])
+def get_review(public_id):
+    reviews=Review.query.filter_by(restaurantpublicid=public_id)
     
+    if not reviews:
+        return jsonify({"message" : "no reviews!"})
+    reviews_data=[]
+    for review in reviews:
+        review_data={}
+        review_data['reviewtext'] = review.reviewtext
+        if not review.responsetext:
+            review_data['response'] = review.responsetext
+        review_data['username']=review.user.name
+        review_data['postdate']=review.postdate
+        reviews_data.append(review_data)
 
-
-
-
+    return jsonify({"reviews_data" : reviews_data})
 
 if __name__ == "__main__":
     app.run(debug=True)
