@@ -5,13 +5,18 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
 import datetime
-
+from flask_jwt_extended import (
+    JWTManager, jwt_required, create_access_token,
+    get_jwt_identity
+)
 
 app = Flask(__name__)
 
 # Configurations
 app.config['SECRET_KEY'] = "secretkey"
 app.config['SQLALCHEMY_DATABASE_URI'] = "mysql://root:@localhost/review"
+app.config['JWT_SECRET_KEY'] = 'super-secret'
+jwt = JWTManager(app)
 
 # SQLAlchemy Instance
 db = SQLAlchemy(app)
@@ -106,12 +111,12 @@ def register_user():
 def login():
     data = request.get_json(force=True)
     if not data :
-        return jsonify('Could not verify')
+        return jsonify({"message": "Malformed Request Data"}), 400
     
     user = User.query.filter_by(email=data['email']).first()
     
     if not user:
-        return jsonify('Could not verify')        
+        return jsonify({"message": "User Not Found"}), 401      
 
     print("pass compare: ",check_password_hash(user.password,data['password']))
     if check_password_hash(user.password,data['password']):
@@ -119,14 +124,15 @@ def login():
         session['username'] = user.name
         session['email'] = user.email
         session['publicid'] = user.publicid
-        return jsonify({"message": "login Successfull"})
+        access_token = create_access_token(identity=user.publicid)
+        return jsonify({"message": "login Successfull", "access_token":access_token}), 200
     
-    return jsonify({"message": "Password incorrect"})
-
+    return jsonify({"message": "Password incorrect"}), 401
 
 
 
 @app.route('/getuser/<publicid>',methods=['GET'])
+@jwt_required
 def get_user(publicid):
     print("public id: ",publicid)
     user = User.query.filter_by(publicid=publicid).first()
@@ -146,6 +152,8 @@ def get_user(publicid):
 
 
 @app.route('/addrestaurant' , methods=['POST'])
+@jwt_required
+
 def add_restaurant():
     data = request.get_json(force=True)
     if not data:
@@ -161,6 +169,8 @@ def add_restaurant():
 
 
 @app.route('/getallrestaurants' , methods=['GET'])
+@jwt_required
+
 def get_all_restaurants():
     restaurants=Restaurant.query.all()
     if not restaurants:
@@ -184,6 +194,8 @@ def get_all_restaurants():
 
 
 @app.route('/getrestaurant/<restaurant_id>' , methods=['GET'])
+@jwt_required
+
 def get_restaurant(restaurant_id):
     restaurant=Restaurant.query.filter_by(restaurantpublicid=restaurant_id).first()
     if not restaurant:
@@ -204,6 +216,8 @@ def get_restaurant(restaurant_id):
 
 	
 @app.route('/postreview',methods=['POST'])
+@jwt_required
+
 def post_review():
     data=request.get_json(force=True)
     if 'publicid' in session:
@@ -219,6 +233,8 @@ def post_review():
 
 
 @app.route('/getreviews/<public_id>',methods=['GET'])
+@jwt_required
+
 def get_review(public_id):
     reviews=Review.query.filter_by(restaurantpublicid=public_id)
     
