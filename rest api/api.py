@@ -9,8 +9,10 @@ from flask_jwt_extended import (
     JWTManager, jwt_required, create_access_token,
     get_jwt_identity
 )
+from flask_cors import CORS
 
 app = Flask(__name__)
+cors = CORS(app, resources={r"//*": {"origins": "*"}})
 
 # Configurations
 app.config['SECRET_KEY'] = "secretkey"
@@ -42,7 +44,7 @@ class Restaurant(db.Model):
     restaurantid = db.Column(db.Integer, primary_key=True,autoincrement=True)
     restaurantpublicid = db.Column(db.String(250),unique=True)
     restaurantname = db.Column(db.String(50),nullable=False)
-    restaurantaddress = db.Column(db.String(60),nullable=False)
+    restaurantaddress = db.Column(db.Text(),nullable=False)
     restaurantcontact = db.Column(db.String(10))
     restaurantemail = db.Column(db.String(20))
     restaurantrating = db.Column(db.Float)
@@ -56,8 +58,8 @@ class Restaurant(db.Model):
 class Review(db.Model):
     __tablename__ = 'review'
     reviewid = db.Column(db.Integer,primary_key=True,autoincrement=True)
-    reviewtext = db.Column(db.String(300),nullable=False)
-    responsetext = db.Column(db.String(300))
+    reviewtext = db.Column(db.Text(),nullable=False)
+    responsetext = db.Column(db.Text())
     isreplied = db.Column(db.Boolean)
     postdate= db.Column(db.DateTime,default=datetime.datetime.utcnow,nullable=False)
     userpublicid = db.Column(db.String(50), ForeignKey('user.publicid')) 
@@ -124,7 +126,7 @@ def login():
         session['username'] = user.name
         session['email'] = user.email
         session['publicid'] = user.publicid
-        access_token = create_access_token(identity=user.publicid)
+        access_token = create_access_token(identity=user.publicid, expires_delta=False)
         return jsonify({"message": "login Successfull", "access_token":access_token}), 200
     
     return jsonify({"message": "Password incorrect"}), 401
@@ -178,19 +180,19 @@ def get_all_restaurants():
     restaurants_data=[]
     for restaurant in restaurants:
         restaurant_data={}
-        restaurant_data['restaurantpublicid'] = restaurant.restaurantpublicid
-        restaurant_data['restaurantname'] = restaurant.restaurantname
-        restaurant_data['restaurantaddress'] = restaurant.restaurantaddress
-        restaurant_data['restaurantcontact'] = restaurant.restaurantcontact
-        restaurant_data['restaurantemail'] = restaurant.restaurantemail
-        restaurant_data['restaurantrating'] = restaurant.restaurantrating
-        restaurant_data['restaurantimage'] = restaurant.restaurantimage
-        restaurant_data['restaurantmenu'] = restaurant.restaurantmenu
-        restaurant_data['avgcost'] = restaurant.avgcost
+        restaurant_data['publicid'] = restaurant.restaurantpublicid
+        restaurant_data['name'] = restaurant.restaurantname
+        restaurant_data['address'] = restaurant.restaurantaddress
+        restaurant_data['contact'] = restaurant.restaurantcontact
+        restaurant_data['email'] = restaurant.restaurantemail
+        restaurant_data['rating'] = restaurant.restaurantrating
+        restaurant_data['image'] = restaurant.restaurantimage
+        restaurant_data['menu'] = restaurant.restaurantmenu
+        restaurant_data['cost'] = restaurant.avgcost
         
         restaurants_data.append(restaurant_data)
 
-    return jsonify({'restaurants' : restaurants_data})
+    return jsonify(restaurants_data)
 
 
 @app.route('/getrestaurant/<restaurant_id>' , methods=['GET'])
