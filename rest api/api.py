@@ -168,10 +168,12 @@ def add_restaurant():
 
     return jsonify({'message':"Restaurant added"})
 
-
+@app.route('/static/<path:path>')
+def static_file(path):
+    return app.send_static_file(path)
 
 @app.route('/getallrestaurants' , methods=['GET'])
-@jwt_required
+# @jwt_required
 
 def get_all_restaurants():
     restaurants=Restaurant.query.all()
@@ -222,13 +224,15 @@ def get_restaurant(restaurant_id):
 
 def post_review():
     data=request.get_json(force=True)
-    if 'publicid' in session:
-        publicid=session['publicid']
-        user = User.query.filter_by(publicid=publicid).first()
-    else:
-        return jsonify("login to post review!")
-    restaurant=Restaurant.query.filter_by(restaurantpublicid=data['publicid']).first()
-    new_review=Review(reviewtext=data['text'],isreplied=False,user=user,restaurant=restaurant)
+    # if 'publicid' in session:
+    #     publicid=session['publicid']
+    #     user = User.query.filter_by(publicid=publicid).first()
+    # else:
+    #     return jsonify("login to post review!")
+    restaurant=Restaurant.query.filter_by(restaurantpublicid=data['restaurantid']).first()
+    userid = get_jwt_identity()
+    user = User.query.filter_by(publicid=userid).first()
+    new_review=Review(reviewtext=data['reviewtext'],isreplied=False,user=user,restaurant=restaurant)
     db.session.add(new_review)
     db.session.commit()
     return jsonify({"message" : "review posted!"})
@@ -246,13 +250,17 @@ def get_review(public_id):
     for review in reviews:
         review_data={}
         review_data['reviewtext'] = review.reviewtext
-        if not review.responsetext:
-            review_data['response'] = review.responsetext
+        if (review.isreplied == 1):
+            review_data['responsetext'] = review.responsetext
+        else:
+            review_data['responsetext'] = ''
         review_data['username']=review.user.name
         review_data['postdate']=review.postdate
+        review_data['isreplied']=review.isreplied
+        review_data['restaurantid']=public_id
         reviews_data.append(review_data)
 
-    return jsonify({"reviews_data" : reviews_data})
+    return jsonify(reviews_data)
 
 if __name__ == "__main__":
     app.run(debug=True)
