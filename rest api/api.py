@@ -25,6 +25,12 @@ db = SQLAlchemy(app)
 
 
 # Models
+class Role(db.Model):
+    __tablename__ = 'role'
+    roleid = db.Column(db.Integer,primary_key=True,autoincrement=True)
+    rolename = db.Column(db.Text())
+
+
 class User(db.Model):
     __tablename__ = 'user'
     id = db.Column(db.Integer,primary_key=True,autoincrement=True)
@@ -33,10 +39,11 @@ class User(db.Model):
     password = db.Column(db.String(250))
     contact=db.Column(db.String(10))
     email = db.Column(db.String(50))
-    admin=db.Column(db.Boolean)
     creationdate=db.Column(db.DateTime,default=datetime.datetime.utcnow,nullable=False)
     updationdate=db.Column(db.DateTime,default=datetime.datetime.utcnow,nullable=False)
     enable=db.Column(db.Boolean)
+    roleid = db.Column(db.Integer, ForeignKey('role.roleid')) 
+    role = relationship("Role", back_populates="user")
     
 
 class Restaurant(db.Model):
@@ -53,7 +60,9 @@ class Restaurant(db.Model):
     avgcost = db.Column(db.Integer)
     updationdate = db.Column(db.DateTime,default=datetime.datetime.utcnow,nullable=False)
     creationdate = db.Column(db.DateTime,default=datetime.datetime.utcnow,nullable=False)
-
+    userpublicid = db.Column(db.String(250), ForeignKey('user.publicid')) 
+    user = relationship("User", back_populates="restaurant")
+    
 
 class Review(db.Model):
     __tablename__ = 'review'
@@ -77,8 +86,9 @@ class Template(db.Model):
 
 # Mappings 
 User.review = relationship("Review", order_by=Review.reviewid, back_populates="user")
+User.restaurant = relationship("Restaurant", order_by=Restaurant.restaurantid, back_populates="user")
 Restaurant.review = relationship("Review", order_by=Review.reviewid, back_populates="restaurant")
-
+Role.user = relationship("User",order_by=User.id , back_populates="role")
 
 # Routes
 @app.route("/")
@@ -99,8 +109,10 @@ def register_user():
     print("register user")
     data = request.get_json(force=True)
     print("data: "+str(data))
+    role = Role.query.filter_by(roleid=3).first()
+    print("role.rolename")
     hashed_password = generate_password_hash(data['password'] , method='sha256')
-    new_user = User(publicid=str(uuid.uuid4()),name=data['name'],password=hashed_password,contact=data['contact'],email=data['email'],admin=False,enable=True)
+    new_user = User(publicid=str(uuid.uuid4()),name=data['name'],password=hashed_password,contact=data['contact'],email=data['email'],enable=True,role=role)
     print("here")
     db.session.add(new_user)
     db.session.commit()
@@ -126,8 +138,25 @@ def login():
         session['username'] = user.name
         session['email'] = user.email
         session['publicid'] = user.publicid
+        message = {}
+        message['message'] = "login Successfull"
+        if user.roleid == 1:
+            message['isadmin'] = True
+            message['isowner'] = False
+            message['restaurantpublicid'] = None
+        elif user.roleid == 2:
+            message['isadmin'] = False
+            message['isowner'] = True
+            restaurant = Restaurant.query.filter_by(userpublicid = user.publicid).first()
+            message['restaurantpublicid'] = restaurant.restaurantpublicid
+        else:
+            message['isadmin'] = False
+            message['isowner'] = False
+            message['restaurantpublicid'] = None
+
         access_token = create_access_token(identity=user.publicid, expires_delta=False)
-        return jsonify({"message": "login Successfull", "access_token":access_token}), 200
+        message['access_token'] = access_token
+        return jsonify({"message": message}), 200
     
     return jsonify({"message": "Password incorrect"}), 401
 
@@ -160,9 +189,9 @@ def add_restaurant():
     data = request.get_json(force=True)
     if not data:
         return jsonify("invalid request")
-
+    owner = User.query.filter_by(publicid=data['owner']).first()
     new_restaurant = Restaurant(restaurantpublicid=str(uuid.uuid4()),restaurantname=data['name'],restaurantaddress=data['address'],restaurantcontact=data['contact'],restaurantemail=data['email'],
-    restaurantrating=data['rating'],restaurantimage=data['image'],restaurantmenu=data['menu'],avgcost=data['cost'])
+    restaurantrating=data['rating'],restaurantimage=data['image'],restaurantmenu=data['menu'],avgcost=data['cost'],user=owner)
     db.session.add(new_restaurant)
     db.session.commit()
 
@@ -261,6 +290,26 @@ def get_review(public_id):
         reviews_data.append(review_data)
 
     return jsonify(reviews_data)
+
+
+@app.route('/getallowners' , methods=['GET'])
+@jwt_required
+
+def get_all_owners():
+    owners = User.query.filter_by(roleid)
+    if not owners:
+        return jsonify({'message' : 'No restaurant found!'})
+    
+    get_all_owners = []
+    for owner in owners:
+        get_owner={}
+        get_owner['publicid'] = owner.publicid
+        get_owner['name'] = owner.name    
+        get_owner['email'] = owner.email
+        get_all_owners.append(get_owner)
+    
+    return jsonify({'owners'  : get_all_owners})
+
 
 if __name__ == "__main__":
     app.run(debug=True)
