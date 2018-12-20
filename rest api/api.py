@@ -268,6 +268,32 @@ def post_review():
     return jsonify({"message" : "review posted!"})
 
 
+@app.route('/postresponse',methods=['POST'])
+@jwt_required
+
+def post_response():
+    data=request.get_json(force=True)
+    review = Review.query.filter_by(reviewid = data['reviewid']).first()
+    if not review:
+        return jsonify({"message" : "no review found"})
+    review.responsetext = data['responsetext']
+    message = ''
+    if review.isreplied:
+        message = 'response edited successfully'
+    else:
+        review.isreplied = True
+        message = 'response posted successfully'
+    
+    db.session.add(review)
+    db.session.commit()
+    return jsonify({"message" : message })
+
+    
+    
+    
+
+
+
 @app.route('/getreviews/<public_id>',methods=['GET'])
 @jwt_required
 
@@ -288,6 +314,7 @@ def get_review(public_id):
         review_data['postdate']=review.postdate
         review_data['isreplied']=review.isreplied
         review_data['restaurantid']=public_id
+        review_data['reviewid'] = review.reviewid
         reviews_data.append(review_data)
 
     return jsonify(reviews_data)
@@ -309,7 +336,7 @@ def get_all_owners():
         get_owner['email'] = owner.email
         get_all_owners.append(get_owner)
     
-    return jsonify({'owners'  : get_all_owners})
+    return jsonify(get_all_owners)
 
 
 if __name__ == "__main__":
