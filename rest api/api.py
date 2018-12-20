@@ -156,7 +156,8 @@ def login():
 
         access_token = create_access_token(identity=user.publicid, expires_delta=False)
         message['access_token'] = access_token
-        return jsonify({"message": message}), 200
+        message['message'] = 'Login Success'
+        return jsonify(message), 200
     
     return jsonify({"message": "Password incorrect"}), 401
 
@@ -206,9 +207,9 @@ def static_file(path):
 
 def get_all_restaurants():
     restaurants=Restaurant.query.all()
-    if not restaurants:
-        return jsonify({'message' : 'No restaurant found!'})
     restaurants_data=[]
+    if not restaurants:
+        return jsonify(restaurants_data)
     for restaurant in restaurants:
         restaurant_data={}
         restaurant_data['publicid'] = restaurant.restaurantpublicid
@@ -235,17 +236,17 @@ def get_restaurant(restaurant_id):
         return jsonify({'message' : 'No restaurant found!'})
     
     restaurant_data={}
-    restaurant_data['restaurantpublicid'] = restaurant.restaurantpublicid
-    restaurant_data['restaurantname'] = restaurant.restaurantname
-    restaurant_data['restaurantaddress'] = restaurant.restaurantaddress
-    restaurant_data['restaurantcontact'] = restaurant.restaurantcontact
-    restaurant_data['restaurantemail'] = restaurant.restaurantemail
-    restaurant_data['restaurantrating'] = restaurant.restaurantrating
-    restaurant_data['restaurantimage'] = restaurant.restaurantimage
-    restaurant_data['restaurantmenu'] = restaurant.restaurantmenu
-    restaurant_data['avgcost'] = restaurant.avgcost
+    restaurant_data['publicid'] = restaurant.restaurantpublicid
+    restaurant_data['name'] = restaurant.restaurantname
+    restaurant_data['address'] = restaurant.restaurantaddress
+    restaurant_data['contact'] = restaurant.restaurantcontact
+    restaurant_data['email'] = restaurant.restaurantemail
+    restaurant_data['rating'] = restaurant.restaurantrating
+    restaurant_data['image'] = restaurant.restaurantimage
+    restaurant_data['menu'] = restaurant.restaurantmenu
+    restaurant_data['cost'] = restaurant.avgcost
 
-    return jsonify({'restaurant' : restaurant_data})
+    return jsonify(restaurant_data)
 
 	
 @app.route('/postreview',methods=['POST'])
