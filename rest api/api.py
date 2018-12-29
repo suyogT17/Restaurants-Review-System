@@ -191,9 +191,13 @@ def add_restaurant():
     if not data:
         return jsonify("invalid request")
     owner = User.query.filter_by(publicid=data['owner']).first()
+    # make owner 
+    role = Role.query.filter_by(roleid=2).first()
+    owner.role = role
     new_restaurant = Restaurant(restaurantpublicid=str(uuid.uuid4()),restaurantname=data['name'],restaurantaddress=data['address'],restaurantcontact=data['contact'],restaurantemail=data['email'],
     restaurantrating=data['rating'],restaurantimage=data['image'],restaurantmenu=data['menu'],avgcost=data['cost'],user=owner)
     db.session.add(new_restaurant)
+    db.session.add(owner) #update
     db.session.commit()
 
     return jsonify({'message':"Restaurant added"})
@@ -288,6 +292,12 @@ def post_response():
     db.session.commit()
     return jsonify({"message" : message })
 
+    
+    
+    
+
+
+
 @app.route('/getreviews/<public_id>',methods=['GET'])
 @jwt_required
 
@@ -318,13 +328,9 @@ def get_review(public_id):
 @jwt_required
 
 def get_all_owners():
-    userid = get_jwt_identity()
-    user = User.query.filter_by(publicid=userid).first()
-    if user.roleid != 1 :
-        return jsonify([])
     owners = User.query.filter_by(roleid=2)
     if not owners:
-        return jsonify([])
+        return jsonify({'message' : 'No restaurant found!'})
     
     get_all_owners = []
     for owner in owners:
@@ -337,27 +343,45 @@ def get_all_owners():
     return jsonify(get_all_owners)
 
 
-@app.route('/getallusers' , methods=['GET'])
+@app.route('/deletereview' , methods=['POST'])
 @jwt_required
 
-def get_all_users():
-    userid = get_jwt_identity()
-    user = User.query.filter_by(publicid=userid).first()
-    if user.roleid != 1 :
-        print(user.roleid)
-        return jsonify([])
-    owners = User.query.filter_by(roleid=3)
-    if not owners:
-        return jsonify([])
+def delete_review():
+    data = request.get_json(force = True) 
+    review = Review.query.filter_by(reviewid = data['reviewid']).first()
+
+    if not review:
+        return jsonify({'message' : 'Review Not Found' })
     
-    get_all_owners = []
-    for owner in owners:
-        get_owner={}
-        get_owner['publicid'] = owner.publicid
-        get_owner['name'] = owner.name    
-        get_owner['email'] = owner.email
-        get_all_owners.append(get_owner)
-    return jsonify(get_all_owners)
+    db.session.delete(review)
+    db.session.commit()
+    
+    return jsonify({'message' : 'Review Deleted Successfully!!!' })
+
+
+@app.route('/deleterestaurant' , methods=['POST'])
+@jwt_required
+
+def delete_restaurant():
+    data = request.get_json(force = True) 
+    restaurant = Restaurant.query.filter_by(restaurantpublicid = data['restaurantpublicid']).first()
+
+    if not restaurant:
+        return jsonify({'message' : 'Restaurant Not Found' })
+    
+    user = User.query.filter_by(publicid = restaurant.userpublicid).first()
+    role = Role.query.filter_by(roleid=3).first()
+    user.role = role  
+    
+    db.session.delete(restaurant)
+    db.session.add(user)
+    db.session.commit()
+    
+    return jsonify({'message' : 'Restaurant Deleted Successfully!!!' })
+
+ 
+
+
 
 if __name__ == "__main__":
     app.run(debug=True)
