@@ -330,7 +330,7 @@ def get_review(public_id):
 def get_all_owners():
     owners = User.query.filter_by(roleid=2)
     if not owners:
-        return jsonify({'message' : 'No restaurant found!'})
+        return jsonify([])
     
     get_all_owners = []
     for owner in owners:
@@ -342,6 +342,27 @@ def get_all_owners():
     
     return jsonify(get_all_owners)
 
+@app.route('/getallusers' , methods=['GET'])
+@jwt_required
+
+def get_all_users():
+    userid = get_jwt_identity()
+    user = User.query.filter_by(publicid=userid).first()
+    if user.roleid != 1 :
+        print(user.roleid)
+        return jsonify([])
+    owners = User.query.filter_by(roleid=3)
+    if not owners:
+        return jsonify([])
+    
+    get_all_owners = []
+    for owner in owners:
+        get_owner={}
+        get_owner['publicid'] = owner.publicid
+        get_owner['name'] = owner.name    
+        get_owner['email'] = owner.email
+        get_all_owners.append(get_owner)
+    return jsonify(get_all_owners)
 
 @app.route('/deletereview' , methods=['POST'])
 @jwt_required
