@@ -1,5 +1,8 @@
 from flask import Flask,request,jsonify,make_response,session
 import uuid
+import re
+import spacy
+from textblob import TextBlob
 from werkzeug.security import generate_password_hash,check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import ForeignKey
@@ -184,7 +187,7 @@ def get_user(publicid):
 
 
 @app.route('/addrestaurant' , methods=['POST'])
-@jwt_required
+#@jwt_required
 
 def add_restaurant():
     data = request.get_json(force=True)
@@ -254,7 +257,7 @@ def get_restaurant(restaurant_id):
 
 	
 @app.route('/postreview',methods=['POST'])
-@jwt_required
+#@jwt_required
 
 def post_review():
     data=request.get_json(force=True)
@@ -264,11 +267,12 @@ def post_review():
     # else:
     #     return jsonify("login to post review!")
     restaurant=Restaurant.query.filter_by(restaurantpublicid=data['restaurantid']).first()
-    userid = get_jwt_identity()
+    userid = "1aba75f7-73e2-4d86-849b-21b867008ed7"
     user = User.query.filter_by(publicid=userid).first()
     new_review=Review(reviewtext=data['reviewtext'],isreplied=False,user=user,restaurant=restaurant)
     db.session.add(new_review)
     db.session.commit()
+    post_response_auto(new_review)
     return jsonify({"message" : "review posted!"})
 
 
@@ -292,10 +296,84 @@ def post_response():
     db.session.commit()
     return jsonify({"message" : message })
 
+def post_response_auto(new_review):
+    data=request.get_json(force=True)
+    review = Review.query.filter_by(reviewid = new_review.reviewid).first()
+    if not review:
+        return jsonify({"message" : "no review found"})
+    sentiment = sentimentscoregenerator(new_review)
+    review.responsetext = str(sentiment)
+    message = ''
+    if review.isreplied:
+        message = 'response edited successfully'
+    else:
+        review.isreplied = True
+        message = 'response posted successfully'
     
+    db.session.add(review)
+    db.session.commit()
+    return jsonify({"message" : message })    
     
-    
-
+def sentimentscoregenerator(new_review):
+    nlp = spacy.load('en')
+    sent = new_review.reviewtext
+    interested_words = ["food", "service", "ambience"]
+    sentences = split_into_sentences(sent + str("."))
+    sentiments = []
+    for sentence in sentences:
+        output = {"food": 0, "service": 0, "ambience": 0}
+        print(sentence)
+        doc=nlp(sentence)
+        for tok in doc:
+            # print(str(tok) + " " +str(tok.dep_))
+            if tok.dep_== "dobj" or tok.dep_=="nsubj" or tok.dep_=="pobj" or tok.dep_=="nsubjpass":
+                if str(tok).lower() in interested_words:
+                    testimonial = TextBlob(sentence)
+                    #print("Sentence -> "+str(sentence)+ ", Token -> "+str(tok)+", "+str(testimonial.sentiment.polarity))
+                    if testimonial.sentiment.polarity > 0:
+                        output[str(tok).lower()] = 1
+                    elif testimonial.sentiment.polarity < 0:
+                        output[str(tok).lower()] = -1
+                    else:
+                        output[str(tok).lower()] = 0
+            #print(output)
+                #     print(str(tok) + " " +str(tok.dep_))
+            sentiments.append(output)
+    overall = TextBlob(sent)
+    #print(overall.sentiment)
+    sentiments.append(overall.sentiment)
+    return sentiments
+def split_into_sentences(text):
+    alphabets= "([A-Za-z])"
+    prefixes = "(Mr|St|Mrs|Ms|Dr)[.]"
+    suffixes = "(Inc|Ltd|Jr|Sr|Co)"
+    starters = "(Mr|Mrs|Ms|Dr|He\s|She\s|It\s|They\s|Their\s|Our\s|We\s|But\s|However\s|That\s|This\s|Wherever)"
+    acronyms = "([A-Z][.][A-Z][.](?:[A-Z][.])?)"
+    websites = "[.](com|net|org|io|gov)"
+    text = " " + text + "  "
+    text = text.replace("\n"," ")
+    text = re.sub(prefixes,"\\1<prd>",text)
+    text = re.sub(websites,"<prd>\\1",text)
+    if "Ph.D" in text: text = text.replace("Ph.D.","Ph<prd>D<prd>")
+    text = re.sub("\s" + alphabets + "[.] "," \\1<prd> ",text)
+    text = re.sub(acronyms+" "+starters,"\\1<stop> \\2",text)
+    text = re.sub(alphabets + "[.]" + alphabets + "[.]" + alphabets + "[.]","\\1<prd>\\2<prd>\\3<prd>",text)
+    text = re.sub(alphabets + "[.]" + alphabets + "[.]","\\1<prd>\\2<prd>",text)
+    text = re.sub(" "+suffixes+"[.] "+starters," \\1<stop> \\2",text)
+    text = re.sub(" "+suffixes+"[.]"," \\1<prd>",text)
+    text = re.sub(" " + alphabets + "[.]"," \\1<prd>",text)
+    if "”" in text: text = text.replace(".”","”.")
+    if "\"" in text: text = text.replace(".\"","\".")
+    if "!" in text: text = text.replace("!\"","\"!")
+    if "?" in text: text = text.replace("?\"","\"?")
+    text = text.replace(".",".<stop>")
+    text = text.replace("?","?<stop>")
+    text = text.replace("!","!<stop>")
+    text = text.replace("<prd>",".")
+    sentences = text.split("<stop>")
+    sentences = sentences[:-1]
+    sentences = [s.strip() for s in sentences]
+    return sentences
 
 
 @app.route('/getreviews/<public_id>',methods=['GET'])
