@@ -10,6 +10,9 @@ from sqlalchemy.orm import relationship
 import datetime
 import argparse
 import sys
+import json
+import ast
+from  sqlalchemy.sql.expression import func
 from google.cloud import language
 from google.cloud.language import enums
 from google.cloud.language import types
@@ -210,6 +213,19 @@ def add_restaurant():
 
     return jsonify({'message':"Restaurant added"})
 
+@app.route('/addtemplate' , methods=['POST'])
+@jwt_required
+
+def add_template():
+    data = request.get_json(force=True)
+    if not data:
+        return jsonify("invalid request")
+    template = Template(templatetext = data['templatetext'], sentimentscore = str({'food': data['food'], 'service': data['service'], 'ambience': data['ambience'], 'overall': data['overall'], 'contains':data['contains']}))
+    db.session.add(template)
+    db.session.commit()
+
+    return jsonify({'message':"Template added"})
+
 @app.route('/static/<path:path>')
 def static_file(path):
     return app.send_static_file(path)
@@ -237,6 +253,27 @@ def get_all_restaurants():
         restaurants_data.append(restaurant_data)
 
     return jsonify(restaurants_data)
+
+@app.route('/getalltemplates' , methods=['GET'])
+@jwt_required
+
+def get_all_templates():
+    templates=Template.query.all()
+    templates_data=[]
+    if not templates:
+        return jsonify(restaurants_data)
+    for template in templates:
+        template_data={}
+        template_data['id'] = template.templateid
+        template_data['text'] = template.templatetext
+        sentimentscore = ast.literal_eval(template.sentimentscore)
+        template_data['food'] = sentimentscore["food"]
+        template_data['service'] = sentimentscore["service"]
+        template_data['ambience'] = sentimentscore["ambience"]
+        
+        templates_data.append(template_data)
+
+    return jsonify(templates_data)
 
 
 @app.route('/getrestaurant/<restaurant_id>' , methods=['GET'])
@@ -277,7 +314,7 @@ def post_review():
     new_review=Review(reviewtext=data['reviewtext'],isreplied=False,user=user,restaurant=restaurant)
     db.session.add(new_review)
     db.session.commit()
-    post_response_auto(new_review)
+    post_response_auto_gcp(new_review)
     return jsonify({"message" : "review posted!"})
 
 
@@ -307,11 +344,11 @@ def post_response_auto(new_review):
     if not review:
         return jsonify({"message" : "no review found"})
     sentiment = sentimentscoregenerator(new_review)
-    
-    response = Template.query.filter_by(sentimentscore = str(sentiment)).first()
+    response = Template.query.filter_by(sentimentscore = str(sentiment)).order_by(func.random())
+    response = response.first()
     print(response)
     print(str(sentiment))
-    review.responsetext = str(response)
+    review.responsetext = response.templatetext
     message = ''
     if review.isreplied:
         message = 'response edited successfully'
@@ -349,11 +386,31 @@ def sentimentscoregenerator(new_review):
                     
             #print(output)
                 #     print(str(tok) + " " +str(tok.dep_))
-            
-    overall = TextBlob(sent)
-    print(overall.sentiment)
-    sentiment["overall"] = overall.sentiment.polarity
-    print(overall.sentiment.polarity)
+    if sentiment["food"]>1:
+        sentiment["food"] = 1
+    if sentiment["food"]<-1:
+        sentiment["food"] = -1
+    if sentiment["service"]>1:
+        sentiment["service"] = 1
+    if sentiment["service"]<-1:
+        sentiment["service"] = -1
+    if sentiment["ambience"]>1:
+        sentiment[ambience] = 1
+    if sentiment["ambience"]<-1:
+        sentiment["ambience"] = -1
+    # overall = TextBlob(sent)
+    # print(overall.sentiment)
+    # sentiment["overall"] = overall.sentiment.polarity
+    # print(overall.sentiment.polarity)
+    if sentiment["contains"] == 0:
+        overall = TextBlob(sent)
+        print(overall.sentiment)
+        if overall.sentiment.polarity > 0:
+            sentiment["overall"] = 1
+        elif overall.sentiment.polarity < 0:
+            sentiment["overall"] = -1
+        else:
+            sentiment["overall"] = 0
     return sentiment
 def split_into_sentences(text):
     alphabets= "([A-Za-z])"
@@ -393,8 +450,11 @@ def post_response_auto_gcp(new_review):
     if not review:
         return jsonify({"message" : "no review found"})
     sentiment = entity_sentiment_text(new_review.reviewtext)
-    response = Template.query.filter_by(sentimentscore = str(sentiment)).first().templatetext
-    review.responsetext = response
+    response = Template.query.filter_by(sentimentscore = str(sentiment)).order_by(func.random())
+    response = response.first()
+    print(response)
+    print(str(sentiment))
+    review.responsetext = response.templatetext
     message = ''
     if review.isreplied:
         message = 'response edited successfully'
@@ -443,6 +503,27 @@ def entity_sentiment_text(text):
                 # print(u'  Sentiment : {}'.format(mention.sentiment.score))
         # print(u'Salience: {}'.format(entity.salience))
         # print(u'Sentiment: {}\n'.format(entity.sentiment))   
+    if sentiment["food"]>1:
+        sentiment["food"] = 1
+    if sentiment["food"]<-1:
+        sentiment["food"] = -1
+    if sentiment["service"]>1:
+        sentiment["service"] = 1
+    if sentiment["service"]<-1:
+        sentiment["service"] = -1
+    if sentiment["ambience"]>1:
+        sentiment[ambience] = 1
+    if sentiment["ambience"]<-1:
+        sentiment["ambience"] = -1
+    if sentiment["contains"] == 0:
+        overall = TextBlob(text)
+        print(overall.sentiment)
+        if overall.sentiment.polarity > 0:
+            sentiment["overall"] = 1
+        elif overall.sentiment.polarity < 0:
+            sentiment["overall"] = -1
+        else:
+            sentiment["overall"] = 0
     return sentiment
 
 @app.route('/getreviews/<public_id>',methods=['GET'])
@@ -525,6 +606,21 @@ def delete_review():
     db.session.commit()
     
     return jsonify({'message' : 'Review Deleted Successfully!!!' })
+
+@app.route('/deletetemplate' , methods=['POST'])
+@jwt_required
+
+def delete_template():
+    data = request.get_json(force = True) 
+    template = Template.query.filter_by(templateid = data['templateid']).first()
+
+    if not template:
+        return jsonify({'message' : 'template Not Found' })
+    
+    db.session.delete(template)
+    db.session.commit()
+    
+    return jsonify({'message' : 'template Deleted Successfully!!!' })
 
 
 @app.route('/deleterestaurant' , methods=['POST'])
