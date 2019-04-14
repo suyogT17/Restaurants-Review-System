@@ -8,6 +8,11 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
 import datetime
+import argparse
+import sys
+from google.cloud import language
+from google.cloud.language import enums
+from google.cloud.language import types
 from flask_jwt_extended import (
     JWTManager, jwt_required, create_access_token,
     get_jwt_identity
@@ -83,8 +88,8 @@ class Review(db.Model):
 class Template(db.Model):
     __tablename__ = 'template'
     templateid = db.Column(db.Integer,primary_key=True,autoincrement=True)
-    templatetext = db.Column(db.String(200))
-    sentimentscore = db.Column(db.Integer)
+    templatetext = db.Column(db.Text())
+    sentimentscore = db.Column(db.Text())
 
 
 # Mappings 
@@ -187,7 +192,7 @@ def get_user(publicid):
 
 
 @app.route('/addrestaurant' , methods=['POST'])
-#@jwt_required
+@jwt_required
 
 def add_restaurant():
     data = request.get_json(force=True)
@@ -210,7 +215,7 @@ def static_file(path):
     return app.send_static_file(path)
 
 @app.route('/getallrestaurants' , methods=['GET'])
-# @jwt_required
+@jwt_required
 
 def get_all_restaurants():
     restaurants=Restaurant.query.all()
@@ -257,7 +262,7 @@ def get_restaurant(restaurant_id):
 
 	
 @app.route('/postreview',methods=['POST'])
-#@jwt_required
+@jwt_required
 
 def post_review():
     data=request.get_json(force=True)
@@ -267,7 +272,7 @@ def post_review():
     # else:
     #     return jsonify("login to post review!")
     restaurant=Restaurant.query.filter_by(restaurantpublicid=data['restaurantid']).first()
-    userid = "1aba75f7-73e2-4d86-849b-21b867008ed7"
+    userid = get_jwt_identity()
     user = User.query.filter_by(publicid=userid).first()
     new_review=Review(reviewtext=data['reviewtext'],isreplied=False,user=user,restaurant=restaurant)
     db.session.add(new_review)
@@ -302,7 +307,11 @@ def post_response_auto(new_review):
     if not review:
         return jsonify({"message" : "no review found"})
     sentiment = sentimentscoregenerator(new_review)
-    review.responsetext = str(sentiment)
+    
+    response = Template.query.filter_by(sentimentscore = str(sentiment)).first()
+    print(response)
+    print(str(sentiment))
+    review.responsetext = str(response)
     message = ''
     if review.isreplied:
         message = 'response edited successfully'
@@ -319,9 +328,9 @@ def sentimentscoregenerator(new_review):
     sent = new_review.reviewtext
     interested_words = ["food", "service", "ambience"]
     sentences = split_into_sentences(sent + str("."))
-    sentiments = []
+    sentiment = {"food": 0, "service": 0, "ambience": 0, "overall": 0, "contains": 0}
     for sentence in sentences:
-        output = {"food": 0, "service": 0, "ambience": 0}
+        
         print(sentence)
         doc=nlp(sentence)
         for tok in doc:
@@ -329,20 +338,23 @@ def sentimentscoregenerator(new_review):
             if tok.dep_== "dobj" or tok.dep_=="nsubj" or tok.dep_=="pobj" or tok.dep_=="nsubjpass":
                 if str(tok).lower() in interested_words:
                     testimonial = TextBlob(sentence)
+                    sentiment["contains"] = 1
                     #print("Sentence -> "+str(sentence)+ ", Token -> "+str(tok)+", "+str(testimonial.sentiment.polarity))
                     if testimonial.sentiment.polarity > 0:
-                        output[str(tok).lower()] = 1
+                        sentiment[str(tok).lower()] = sentiment[str(tok).lower()] + 1
                     elif testimonial.sentiment.polarity < 0:
-                        output[str(tok).lower()] = -1
+                        sentiment[str(tok).lower()] = sentiment[str(tok).lower()] - 1
                     else:
-                        output[str(tok).lower()] = 0
+                        sentiment[str(tok).lower()] = sentiment[str(tok).lower()] + 0
+                    
             #print(output)
                 #     print(str(tok) + " " +str(tok.dep_))
-            sentiments.append(output)
+            
     overall = TextBlob(sent)
-    #print(overall.sentiment)
-    sentiments.append(overall.sentiment)
-    return sentiments
+    print(overall.sentiment)
+    sentiment["overall"] = overall.sentiment.polarity
+    print(overall.sentiment.polarity)
+    return sentiment
 def split_into_sentences(text):
     alphabets= "([A-Za-z])"
     prefixes = "(Mr|St|Mrs|Ms|Dr)[.]"
@@ -375,6 +387,63 @@ def split_into_sentences(text):
     sentences = [s.strip() for s in sentences]
     return sentences
 
+def post_response_auto_gcp(new_review):
+    data=request.get_json(force=True)
+    review = Review.query.filter_by(reviewid = new_review.reviewid).first()
+    if not review:
+        return jsonify({"message" : "no review found"})
+    sentiment = entity_sentiment_text(new_review.reviewtext)
+    response = Template.query.filter_by(sentimentscore = str(sentiment)).first().templatetext
+    review.responsetext = response
+    message = ''
+    if review.isreplied:
+        message = 'response edited successfully'
+    else:
+        review.isreplied = True
+        message = 'response posted successfully'
+    
+    db.session.add(review)
+    db.session.commit()
+    return jsonify({"message" : message })
+    
+def entity_sentiment_text(text):
+    """Detects entity sentiment in the provided text."""
+    client = language.LanguageServiceClient()
+    try:
+        text = text.decode('utf-8')
+    except AttributeError:
+        pass
+
+    document = types.Document(
+        content=text.encode('utf-8'),
+        type=enums.Document.Type.PLAIN_TEXT)
+
+    # Detect and send native Python encoding to receive correct word offsets.
+    encoding = enums.EncodingType.UTF32
+    if sys.maxunicode == 65535:
+        encoding = enums.EncodingType.UTF16
+
+    interested_words = ["food", "service", "ambience"]
+    print("Pre result")
+    result = client.analyze_entity_sentiment(document, encoding)
+    sentiment = {"food": 0, "service": 0, "ambience": 0, "overall": 0, "contains": 0}
+    print("Post Result")
+    for entity in result.entities:
+        #print('Mentions: ')
+        #print(u'Name: "{}"'.format(entity.name))
+        if str(entity.name).lower() in interested_words:
+            for mention in entity.mentions:
+                sentiment["contains"] = 1
+                if mention.sentiment.score > 0:
+                    sentiment[str(entity.name).lower()] = sentiment[str(entity.name).lower()] + 1
+                elif mention.sentiment.score < 0:
+                    sentiment[str(entity.name).lower()] = sentiment[str(entity.name).lower()] - 1
+                else:
+                    sentiment[str(entity.name).lower()] = sentiment[str(entity.name).lower()] + 0
+                # print(u'  Sentiment : {}'.format(mention.sentiment.score))
+        # print(u'Salience: {}'.format(entity.salience))
+        # print(u'Sentiment: {}\n'.format(entity.sentiment))   
+    return sentiment
 
 @app.route('/getreviews/<public_id>',methods=['GET'])
 @jwt_required
